@@ -2,7 +2,7 @@ import * as bitcoin from 'bitcoinjs-lib';
 import * as secp256k1 from '@noble/secp256k1';
 import { ECPairFactory } from 'ecpair';
 
-// hex <-> Uint8Array helpers
+// hex <-> Uint8Array helpers (без использования Node Buffer)
 const bytesToHex = (bytes: Uint8Array) =>
   Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -46,7 +46,7 @@ const ecc = {
   },
 };
 
-// Ленивая инициализация ECPair (чтобы polyfill/Buffer не понадобились на этапе загрузки)
+// Ленивая инициализация ECPair — ECPairFactory вызывается только при первом использовании
 let _ECPair: ReturnType<typeof ECPairFactory> | null = null;
 function getECPair() {
   if (!_ECPair) _ECPair = ECPairFactory(ecc);

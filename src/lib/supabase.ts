@@ -1,6 +1,5 @@
-// Безопасный supabase-wrapper: не бросает при отсутствии env, экспортирует saveWallet как noop,
-// инициализирует реальный клиент только если переменные окружения заданы.
-// Также экспортируем getWalletsWithBalance, getSupabaseClient.
+// Safe Supabase wrapper: работа в режимe no-op если VITE_SUPABASE_* не заданы.
+// Экспортирует: saveWallet, getWalletsWithBalance, getSupabaseClient и тип WalletRecord.
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
@@ -21,16 +20,16 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
   console.warn('Supabase: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY — saveWallet and getWalletsWithBalance will be no-ops.');
 }
 
-export interface WalletRow {
-  private_key?: string;
+export interface WalletRecord {
+  id: string;
+  private_key?: string | null;
   address: string;
-  balance?: number;
-  total_received?: number;
-  total_sent?: number;
-  created_at?: string;
+  balance: number;
+  total_received?: number | null;
+  total_sent?: number | null;
+  created_at?: string | null;
 }
 
-// Сохраняет найденный кошелек (noop, если нет клиента)
 export async function saveWallet(privateKey: string, address: string, balance: number) {
   if (!supabase) {
     console.warn('saveWallet skipped: Supabase not configured', { address, balance });
@@ -56,33 +55,33 @@ export async function saveWallet(privateKey: string, address: string, balance: n
   }
 }
 
-// Возвращает массив кошельков с ненулевым балансом (или пустой массив, если Supabase не настроен)
-export async function getWalletsWithBalance(): Promise<Array<{ address: string; balance: number; totalReceived?: number; totalSent?: number }>> {
+export async function getWalletsWithBalance(): Promise<WalletRecord[]> {
   if (!supabase) {
     console.warn('getWalletsWithBalance skipped: Supabase not configured');
     return [];
   }
 
   try {
-    // Пример: таблица 'wallets' с колонками address, balance, total_received, total_sent
     const { data, error } = await supabase
-      .from<WalletRow>('wallets')
-      .select('address, balance, total_received, total_sent')
+      .from('wallets')
+      .select('id, private_key, address, balance, total_received, total_sent, created_at')
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(200);
 
     if (error) {
       console.error('getWalletsWithBalance: query error', error);
       return [];
     }
-
     if (!data) return [];
 
-    return data.map((r) => ({
+    return data.map((r: any) => ({
+      id: r.id,
+      private_key: r.private_key ?? null,
       address: r.address,
-      balance: (r.balance ?? 0),
-      totalReceived: (r.total_received ?? 0),
-      totalSent: (r.total_sent ?? 0),
+      balance: r.balance ?? 0,
+      total_received: r.total_received ?? 0,
+      total_sent: r.total_sent ?? 0,
+      created_at: r.created_at ?? null,
     }));
   } catch (err) {
     console.error('getWalletsWithBalance: unexpected error', err);
@@ -90,7 +89,6 @@ export async function getWalletsWithBalance(): Promise<Array<{ address: string; 
   }
 }
 
-// Экспорт клиента для отладки/расширений
 export function getSupabaseClient() {
   return supabase;
 }
