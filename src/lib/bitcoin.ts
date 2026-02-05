@@ -1,0 +1,80 @@
+import * as bitcoin from 'bitcoinjs-lib';
+import * as secp256k1 from '@noble/secp256k1';
+import { ECPairFactory } from 'ecpair';
+
+const ecc = {
+  isPoint: (p: Uint8Array) => {
+    try {
+      secp256k1.Point.fromHex(p);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  isPrivate: (d: Uint8Array) => {
+    return secp256k1.utils.isValidPrivateKey(d);
+  },
+  pointFromScalar: (d: Uint8Array, compressed?: boolean) => {
+    const point = secp256k1.Point.fromPrivateKey(d);
+    return point.toRawBytes(compressed);
+  },
+  pointAddScalar: (p: Uint8Array, tweak: Uint8Array, compressed?: boolean) => {
+    const point = secp256k1.Point.fromHex(p);
+    const tweakPoint = secp256k1.Point.fromPrivateKey(tweak);
+    const result = point.add(tweakPoint);
+    return result.toRawBytes(compressed);
+  },
+  privateAdd: (d: Uint8Array, tweak: Uint8Array) => {
+    const result = secp256k1.utils.mod(
+      BigInt('0x' + Buffer.from(d).toString('hex')) +
+      BigInt('0x' + Buffer.from(tweak).toString('hex'))
+    );
+    return Buffer.from(result.toString(16).padStart(64, '0'), 'hex');
+  },
+  sign: (h: Uint8Array, d: Uint8Array) => {
+    return secp256k1.sign(h, d);
+  },
+  verify: (h: Uint8Array, Q: Uint8Array, signature: Uint8Array) => {
+    try {
+      return secp256k1.verify(signature, h, Q);
+    } catch {
+      return false;
+    }
+  },
+};
+
+const ECPair = ECPairFactory(ecc);
+
+export interface BitcoinWallet {
+  privateKey: string;
+  address: string;
+}
+
+export function generateRandomWallet(): BitcoinWallet {
+  const keyPair = ECPair.makeRandom();
+  const privateKey = keyPair.toWIF();
+
+  const { address } = bitcoin.payments.p2pkh({
+    pubkey: keyPair.publicKey,
+    network: bitcoin.networks.bitcoin,
+  });
+
+  if (!address) {
+    throw new Error('Failed to generate address');
+  }
+
+  return {
+    privateKey,
+    address,
+  };
+}
+
+export function generateMultipleWallets(count: number): BitcoinWallet[] {
+  const wallets: BitcoinWallet[] = [];
+
+  for (let i = 0; i < count; i++) {
+    wallets.push(generateRandomWallet());
+  }
+
+  return wallets;
+}
