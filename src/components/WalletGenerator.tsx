@@ -59,6 +59,7 @@ export default function WalletGenerator() {
             totalSent: 0,
           };
         }
+        // экспоненциальная пауза
         await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
       }
     }
@@ -71,9 +72,12 @@ export default function WalletGenerator() {
   };
 
   const processBatch = async () => {
+    // Валидируем batchSize: гарантируем целое в [1,50]
+    const size = Math.max(1, Math.min(50, Math.floor(batchSize)));
     const batch: WalletDisplay[] = [];
 
-    for (let i = 0; i < batchSize; i++) {
+    for (let i = 0; i < size; i++) {
+      if (shouldStopRef.current) break; // реагируем на остановку сразу при сборке батча
       const wallet = generateRandomWallet();
       batch.push({
         privateKey: wallet.privateKey,
@@ -83,10 +87,14 @@ export default function WalletGenerator() {
       });
     }
 
+    if (batch.length === 0) return; // если остановили — пропускаем обработку
+
     setRecentWallets((prev) => [...batch, ...prev].slice(0, 20));
     setStats((prev) => ({ ...prev, total: prev.total + batch.length }));
 
     const checkPromises = batch.map(async (walletDisplay) => {
+      if (shouldStopRef.current) return null; // быстрый выход, если попросили остановиться
+
       try {
         const wallet: BitcoinWallet = {
           privateKey: walletDisplay.privateKey,
@@ -113,9 +121,14 @@ export default function WalletGenerator() {
           withBalance: balance.balance > 0 || balance.totalReceived > 0 ? prev.withBalance + 1 : prev.withBalance,
         }));
 
-        if (balance.balance > 0 || balance.totalReceived > 0) {
+        if ((balance.balance > 0 || balance.totalReceived > 0) && !shouldStopRef.current) {
           setFoundWallets((prev) => [...prev, balance]);
-          await saveWallet(wallet.privateKey, wallet.address, balance.balance);
+          // сохраняем найденный кошелек (если у вас настроен supabase)
+          try {
+            await saveWallet(wallet.privateKey, wallet.address, balance.balance);
+          } catch (err) {
+            console.error('Failed to save wallet:', err);
+          }
         }
 
         return balance;
@@ -130,10 +143,12 @@ export default function WalletGenerator() {
     });
 
     await Promise.all(checkPromises);
+    // Небольшая пауза, чтобы не забросать API
     await new Promise((resolve) => setTimeout(resolve, 200));
   };
 
   const startGeneration = async () => {
+    if (isGenerating) return;
     setIsGenerating(true);
     shouldStopRef.current = false;
     setStats({ total: 0, checked: 0, withBalance: 0, errors: 0 });
@@ -215,10 +230,10 @@ export default function WalletGenerator() {
           </label>
           <input
             type="number"
-            min="1"
-            max="50"
+            min={1}
+            max={50}
             value={batchSize}
-            onChange={(e) => setBatchSize(parseInt(e.target.value) || 10)}
+            onChange={(e) => setBatchSize(Math.max(1, Math.min(50, parseInt(e.target.value) || 10)))}
             disabled={isGenerating}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:bg-gray-100"
           />

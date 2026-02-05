@@ -2,9 +2,17 @@ import * as bitcoin from 'bitcoinjs-lib';
 import * as secp256k1 from '@noble/secp256k1';
 import { ECPairFactory } from 'ecpair';
 
+// Хелперы для работы с hex <-> Uint8Array (без использования Node Buffer)
+const bytesToHex = (bytes: Uint8Array) =>
+  Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+
+const hexToBytes = (hex: string) =>
+  new Uint8Array(hex.match(/.{1,2}/g)!.map((b) => parseInt(b, 16)));
+
 const ecc = {
   isPoint: (p: Uint8Array) => {
     try {
+      // noble: Point.fromHex принимает hex string или Uint8Array
       secp256k1.Point.fromHex(p);
       return true;
     } catch {
@@ -16,20 +24,22 @@ const ecc = {
   },
   pointFromScalar: (d: Uint8Array, compressed?: boolean) => {
     const point = secp256k1.Point.fromPrivateKey(d);
-    return point.toRawBytes(compressed);
+    return point.toRawBytes(Boolean(compressed));
   },
   pointAddScalar: (p: Uint8Array, tweak: Uint8Array, compressed?: boolean) => {
     const point = secp256k1.Point.fromHex(p);
     const tweakPoint = secp256k1.Point.fromPrivateKey(tweak);
     const result = point.add(tweakPoint);
-    return result.toRawBytes(compressed);
+    return result.toRawBytes(Boolean(compressed));
   },
   privateAdd: (d: Uint8Array, tweak: Uint8Array) => {
-    const result = secp256k1.utils.mod(
-      BigInt('0x' + Buffer.from(d).toString('hex')) +
-      BigInt('0x' + Buffer.from(tweak).toString('hex'))
-    );
-    return Buffer.from(result.toString(16).padStart(64, '0'), 'hex');
+    // Выполняем сложение приватных ключей по модулю порядка кривой
+    const dBig = BigInt('0x' + bytesToHex(d));
+    const tBig = BigInt('0x' + bytesToHex(tweak));
+    // Используем utils.mod если доступен — в noble есть utils.mod для операций по модулю
+    const result = secp256k1.utils.mod(dBig + tBig);
+    const hex = result.toString(16).padStart(64, '0');
+    return hexToBytes(hex);
   },
   sign: (h: Uint8Array, d: Uint8Array) => {
     return secp256k1.sign(h, d);
