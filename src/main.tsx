@@ -1,10 +1,3 @@
-import { Buffer } from 'buffer';
-/**
- * Полифилл Buffer для библиотек, ожидающих Node Buffer в браузере.
- * Нужно выполнить ДО импортов библиотек, которые могут использовать Buffer.
- */
-;(globalThis as any).Buffer = Buffer;
-
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';

@@ -2,7 +2,7 @@ import * as bitcoin from 'bitcoinjs-lib';
 import * as secp256k1 from '@noble/secp256k1';
 import { ECPairFactory } from 'ecpair';
 
-// Хелперы для работы с hex <-> Uint8Array (без использования Node Buffer)
+// hex <-> Uint8Array helpers
 const bytesToHex = (bytes: Uint8Array) =>
   Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -12,16 +12,13 @@ const hexToBytes = (hex: string) =>
 const ecc = {
   isPoint: (p: Uint8Array) => {
     try {
-      // noble: Point.fromHex принимает hex string или Uint8Array
       secp256k1.Point.fromHex(p);
       return true;
     } catch {
       return false;
     }
   },
-  isPrivate: (d: Uint8Array) => {
-    return secp256k1.utils.isValidPrivateKey(d);
-  },
+  isPrivate: (d: Uint8Array) => secp256k1.utils.isValidPrivateKey(d),
   pointFromScalar: (d: Uint8Array, compressed?: boolean) => {
     const point = secp256k1.Point.fromPrivateKey(d);
     return point.toRawBytes(Boolean(compressed));
@@ -33,17 +30,13 @@ const ecc = {
     return result.toRawBytes(Boolean(compressed));
   },
   privateAdd: (d: Uint8Array, tweak: Uint8Array) => {
-    // Выполняем сложение приватных ключей по модулю порядка кривой
     const dBig = BigInt('0x' + bytesToHex(d));
     const tBig = BigInt('0x' + bytesToHex(tweak));
-    // Используем utils.mod если доступен — в noble есть utils.mod для операций по модулю
     const result = secp256k1.utils.mod(dBig + tBig);
     const hex = result.toString(16).padStart(64, '0');
     return hexToBytes(hex);
   },
-  sign: (h: Uint8Array, d: Uint8Array) => {
-    return secp256k1.sign(h, d);
-  },
+  sign: (h: Uint8Array, d: Uint8Array) => secp256k1.sign(h, d),
   verify: (h: Uint8Array, Q: Uint8Array, signature: Uint8Array) => {
     try {
       return secp256k1.verify(signature, h, Q);
@@ -53,7 +46,12 @@ const ecc = {
   },
 };
 
-const ECPair = ECPairFactory(ecc);
+// Ленивая инициализация ECPair (чтобы polyfill/Buffer не понадобились на этапе загрузки)
+let _ECPair: ReturnType<typeof ECPairFactory> | null = null;
+function getECPair() {
+  if (!_ECPair) _ECPair = ECPairFactory(ecc);
+  return _ECPair;
+}
 
 export interface BitcoinWallet {
   privateKey: string;
@@ -61,6 +59,7 @@ export interface BitcoinWallet {
 }
 
 export function generateRandomWallet(): BitcoinWallet {
+  const ECPair = getECPair();
   const keyPair = ECPair.makeRandom();
   const privateKey = keyPair.toWIF();
 
@@ -69,22 +68,13 @@ export function generateRandomWallet(): BitcoinWallet {
     network: bitcoin.networks.bitcoin,
   });
 
-  if (!address) {
-    throw new Error('Failed to generate address');
-  }
+  if (!address) throw new Error('Failed to generate address');
 
-  return {
-    privateKey,
-    address,
-  };
+  return { privateKey, address };
 }
 
 export function generateMultipleWallets(count: number): BitcoinWallet[] {
   const wallets: BitcoinWallet[] = [];
-
-  for (let i = 0; i < count; i++) {
-    wallets.push(generateRandomWallet());
-  }
-
+  for (let i = 0; i < count; i++) wallets.push(generateRandomWallet());
   return wallets;
 }
